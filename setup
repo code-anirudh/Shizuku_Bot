@@ -1,0 +1,158 @@
+#!/bin/bash
+
+pprint (){
+    # Color codes
+    cred='\033[0;31m'     # Red
+    cgreen='\033[0;32m'   # Green
+    cyellow='\033[0;33m'  # Yellow
+    cblue='\033[0;34m'    # Blue
+    cmagenta='\033[0;35m' # Magenta
+    ccyan='\033[0;36m'    # Cyan
+    creset='\033[0m'      # Reset color
+
+    # If color not set, default to magenta
+    if [ -z "$2" ]; then
+        color="$cmagenta"
+    else
+        # Set the color variable to the value of the color code variable
+        eval "color=\$$2"
+    fi
+    printf "$color$1$creset"
+}
+
+yesnoprompt(){
+    old_stty_cfg=$(stty -g)
+    stty raw -echo; answer=$(head -c 1)
+    stty $old_stty_cfg
+    echo "$answer" | grep -iq "^y"
+}
+
+update() {
+    pprint "\n\nUpdating package list... " "ccyan"
+    sudo apt update 2>&1 | grep "can be upgraded" &>/dev/null
+    if [ $? -eq 0 ]; then
+        pprint "UPDATE AVAILABLE\n" "cyellow"
+        pprint "Do you want to automatically upgrade (y/n)? " "ccyan"
+        if yesnoprompt; then
+            pprint "\n\nUpgrading packages... " "ccyan"
+            sudo apt upgrade -y &>/dev/null &&
+            pprint "DONE!\n\n" "cgreen" || (pprint "FAIL.\n\n" "cred"; exit 1)
+        else
+            echo
+        fi
+    else
+        pprint "ALREADY UP TO DATE\n\n" "cgreen"
+    fi
+}
+
+packages(){
+    if ! command -v pip &>/dev/null; then
+        pprint "Couldn't find pip, installing now... " "ccyan"
+        sudo apt install python3-pip -y 2>pypilog.txt 1>/dev/null &&
+        pprint "SUCCESS.\n\n" "cgreen" || (pprint "FAIL.\n\n" "cred"; exit 1)
+    fi
+
+    if ! command -v ffmpeg &>/dev/null; then
+        pprint "Couldn't find ffmpeg, installing now... " "ccyan"
+        if sudo apt install ffmpeg -y &>/dev/null; then
+            pprint "SUCCESS.\n\n" "cgreen"
+        else
+            pprint "FAIL.\n\n" "cred"
+            pprint "You need to install ffmpeg manually in order to deploy AnonXMusic, exiting...\n" "cred"
+            exit 1
+        fi
+    fi
+
+    # Check ffmpeg version and warn user if necessary.
+    fv=$(grep -Po 'version (3.*?) ' <<< "$(ffmpeg -version)")
+    if [ -n "$fv" ]; then
+        pprint "Note: Playing live streams might not work since you have ffmpeg $fv, live streams are supported by version 4+.\n" "cyellow"
+    fi
+}
+
+node(){
+    command -v npm &>/dev/null && return
+    pprint "Installing Node.js and npm...  " "ccyan"
+    curl -fssL https://deb.nodesource.com/setup_19.x | sudo -E bash - &>nodelog.txt &&
+    sudo apt install -y nodejs &>>nodelog.txt &&
+    sudo npm i -g npm &>>nodelog.txt &&
+    pprint "SUCCESS!\n" "cgreen" || (pprint "FAIL.\n" "cred"; exit 1)
+}
+
+installation(){
+    pprint "\n\nUpgrading pip and installing dependency packages...\n" "ccyan"
+    pip3 install -U pip &>>pypilog.txt &&
+    pip3 install -U -r requirements.txt &>>pypilog.txt &&
+    pprint "DONE.\n" "cgreen" && return
+    pprint "FAIL.\n" "cred"
+    exit 1
+}
+
+display_banner(){
+    # Banner color: Magenta
+    cmagenta='\033[0;35m'
+    creset='\033[0m'
+
+    printf "${cmagenta}"
+    cat << "EOF"
+
+     ALYA-INSTALLER
+                                                                     
+
+EOF
+    printf "${creset}"
+}
+
+clear
+display_banner
+pprint "\nWelcome to Annie Setup Installer\n\n" "cgreen"
+pprint "If you see any error during the installation process, please refer to these files for logs:\n" "ccyan"
+pprint "For Node.js errors, check nodelog.txt\n" "ccyan"
+pprint "For Python package errors, check pypilog.txt\n\n" "ccyan"
+sleep 1
+pprint "This script needs sudo privileges to update & install packages.\n" "ccyan"
+sudo test
+
+update
+packages
+node
+installation
+pprint "\nAnnie Installation Completed!\n" "cgreen"
+sleep 1
+clear
+
+display_banner
+pprint "\nEnter Your Values Below\n\n" "cgreen"
+pprint "API ID: " "cyellow"; read api_id
+pprint "API HASH: " "cyellow"; read api_hash
+pprint "BOT TOKEN: " "cyellow"; read bot_token
+pprint "OWNER ID: " "cyellow"; read ownid
+pprint "MONGO DB URI: " "cyellow"; read mongo_db
+pprint "LOG GROUP ID: " "cyellow"; read logger
+pprint "STRING SESSION: " "cyellow"; read string_session
+pprint "DEEP API: " "cyellow"; read deep_api
+pprint "GPT API: " "cyellow"; read gpt_api
+
+pprint "\nProcessing your variables, please wait a moment!\n" "ccyan"
+
+if [ -f .env ]; then
+    rm .env
+fi
+
+cat << EOF > .env
+API_ID=$api_id
+API_HASH=$api_hash
+BOT_TOKEN=$bot_token
+MONGO_DB_URI=$mongo_db
+LOGGER_ID=$logger
+STRING_SESSION=$string_session
+OWNER_ID=$ownid
+DEEP_API=$deep_api
+GPT_API=$gpt_api
+EOF
+
+clear
+
+pprint "\nThanks for using the Annie installer. Your variables have been saved successfully!\n" "cgreen"
+pprint "If you want to add more variables, edit your .env file by running: vi .env\n" "ccyan"
+pprint "\nNow you can start the bot by running: bash start\n\n" "cgreen"
